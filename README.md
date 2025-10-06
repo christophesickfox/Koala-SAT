@@ -1,2 +1,130 @@
 # Koala-SAT
-Outil organisationnel. (Inscrition en centre de loisirs)
+This product includes software developed by [Sick Fox].
+
+Langage english : 
+Information: Name of the SAT "proof of concept": Selection of activities on a digital board. 
+Production name: Koala SAT. 
+Code in Html, JavaScript, css. 
+index.html → HTML structure 
+style.css → styles and layout 
+script.js → all the logic (drag & drop, kid mode, etc...) 
+Works on Tbi, Tablet, Computer. Works with touch, mouse and stylus. 
+Storage in "local storage" (in plain English).
+
+SAT is an organizational tool. Initially intended for the animation sector, but adapts to several sectors or functions. 
+
+It is a code that serves as a tool for the organization of various activities. It allows registration by users. 
+
+Simple and effective, it was created to respond to a problem: To allow a child to choose his or her activities at the entrance to the leisure centre, in an interactive and quick way. 
+But quickly, we imagine that we can use this code for other purposes. To organize a meeting, a brainstorming session, sort data, or prepare your travel belongings. 
+Indeed, the code can be used for something other than registering a child in a leisure center.
+
+In admin mode: 
+The organizer enters the users' surnames/first names. The name/surname bar allows you to add a user, it is also a search bar for surnames/first names. 
+A colored bubble is created for each addition of a name/surname (The color of the bubble is random). 
+This bubble is draggable in the activity tables created. The sorting of surnames/first names is available. 
+A draggable bubble is created each time a name/surname is added. 
+This bubble is adjustable using the "bubble size" function. 
+The organizer creates the activity boards. A choice of pictogram is available to add a visual to the activity name. 
+The backgrounds of the activity boards are available in image or color. (Image: PNG) (Color: depends on the browser). 
+The organizer can import a daily fund and plan the funds for each day. (PNG format). 
+Data export can be done in JSON format.
+Here is the setting: 
+(settings.json {"liveServer.settings.customMimeTypes": { ".wasm": "application/wasm"} }) 
+The export is in JSON for compatibility with the MAELIS software (Used in the municipality).
+
+The day can be reset. (The surnames/first names returned to the list and the activity boards should be deleted, (for the moment the boards are not deleted, to be done)). 
+Password change is available. A full-screen mode is available. 
+A countdown indication at the top right of the screen is displayed. 
+It allows you to know the number of children registered in the list of surnames/first names according to the number of children who have put their bubble in an activity table.
+
+In child mode: 
+The child registers for the activity of his choice. (The draggable bubbles remain in the top list and are added to the activities table, so they are not removed from the name/surname list, in admin mode). 
+When exiting child mode, you have to type in the password. 
+
+Diverse: 
+This "proof of concept" version is available on Github, it is in.HTML opens by double clicking on the different browsers. 
+
+The most important thing is security for this code. Names and surnames of children. As well as the css style. (not yet at the top, self-taught who has to learn)
+
+A production version is launched, it starts with the implementation of a Password with complexity. (Available on Github). 
+Then storage in the user's local database such as SQLite, but in the form of a Hash code of type SHA256. 
+Also change the hash code → PBKDF2. SQlite serialized persistence. 
+Removal of the password in plain text. (On the SAT page, in the code, and for the little clever not too clever, lol). 
+Implement strict CSP. See using SRI (Subresource Integrety). 
+Reduce the possibility of XSS injection. (innerHTML to see, if kept). 
+Fix the image problem - Block SVG upload (or sanitizer via canvas conversion). 
+Become GDPR compliant. Service with minor data → obtain parental consent. (Possible when registering in the municipality's leisure centre). See DPIA. 
+To provide adaptation and advice indicated for the storage of data on a server. Encryption in transit: Must be up-to-date HTTPS/TLS (TLS 1.2+)
+Provide procedures for notification to the supervisory authority (CNIL) in the event of a leak.
+
+
+Langue Française.
+Information : 
+
+Nom du "preuve de concept" SAT : Sélection d'activités sur tableau numérique. 
+Nom prod : Koala SAT.
+
+Code en Html, JavaScript, Css. 
+index.html → structure HTML
+style.css → styles et mise en page
+script.js → toute la logique (drag & drop, mode enfant, etc...)
+Fonctionne sur Tbi, Tablette, Ordinateur. Fonctionne en tactile, souris et stylet.
+Stockage dans le "local storage" (en clair).
+Le mot de passe par défaut est : Joietloisirs
+
+SAT est un outil organisationnel. A destination initialement du secteur de l'animation, mais s'adapte a plusieurs secteurs ou fonction.
+
+Il s'agit d'un code qui sert d'outil a l'organisation d'activités diverses. Il permet l'inscription par les utilisateurs.
+
+Simple et efficace, il a été créé pour répondre à une problématique : 
+Permettre à un enfant de choisir ses activités à l'entrée en centre de loisirs, d'une manière interactive et rapide. 
+Mais promptement, on imagine que l'on peut utiliser ce code à d'autre fin. Pour organiser une réunion, une séance de brainstorming, trier des données, ou encore préparer ses affaires de voyages. 
+En effet, le code peut être utilisé pour d'autre chose que l'inscription d'enfant en centre de loisirs.  
+
+
+Fonctionnement : 
+
+En mode admin : 
+L'organisateur rentre les noms/prénoms des utilisateurs. La barre nom/prénom permet d'ajouter un utilisateur, elle est aussi une barre de recherche des noms/prénoms.
+Une bulle coloré est créé pour chaque ajout de nom/prénom (La couleur de la bulle est aléatoire). Cette bulle est draggable dans les tableaux activités créés.
+Le trie des noms/prénoms est disponible. 
+Une bulle draggable est créé à chaque ajout de nom/prénom. 
+Cette bulle est ajustable à l'aide de la fonction  "taille des bulles". 
+L'organisateur crée les tableaux d'activités. Un choix de pictogramme est disponible pour ajouter un visuel au nom d'activité.
+Les fonds des tableaux activités sont disponible en image ou en couleur. (Image : PNG) (Couleur : dépend du navigateur).
+L'organisateur peut importer un fond journalier et prévoir les fonds pour chaque jour. (Format PNG).
+L'exportation des données peut être effective en format JSON. 
+Voici le paramétrage : 
+(settings.json {"liveServer.settings.customMimeTypes": {".wasm": "application/wasm"}} )
+L'exportation est en JSON pour compatibilité avec le logiciel MAELIS (Utilisé dans la commune). 
+
+La journée peut être réinitialisé. (Les noms/prénoms retourne dans la liste et les tableaux d'activités doivent se supprimer, (pour l'instant les tableaux ne se supprime pas, a faire)).
+Le changement de mot de passe est disponible. 
+Un mode plein écran est disponible.
+Une indication, de décompte, en haut a droite de l'écran est affichée.
+Elle permet de connaître le nombre d'enfant inscrit dans la liste des noms/prénoms en focntion du nombre d'enfant ayant mis leur bulle dans un tableau d'activité. 
+ 
+
+En mode enfant : 
+L'enfant s'inscrit à l'activité de son choix. (Les bulles draggable reste dans la liste du haut et s'ajoute au tableau activités, elles ne sont ainsi pas supprimer de la liste nom/prénom, en mode admin). 
+En sortie du mode enfant, il faut taper le mot de passe. 
+
+Divers : 
+Cette version "preuve de concept" est disponible sur Github, elle est en .HTML s'ouvre en double clic sur les différents navigateurs. 
+
+Le plus important est la sécurité pour ce code. Noms et prénoms d'enfant. Ainsi que le style css. (pas encore au top, autodidacte qui doit apprendre)
+
+Une version prod est lancé, elle commence par la mise en place d'un Mot de passe avec complexité. (Disponible sur Github). 
+Puis stockage dans BDD local de l'utilisateur type SQLite, mais sous forme de code Hash de type SHA256. 
+Aussi changement du code hash → PBKDF2. Mise en persistance sérialisé SQlite. 
+Suppression du mot de passe en clair. (Sur la page SAT, dans le code, et pour petit malin pas trop trop malin, lol). 
+Mettre en place CSP strict.
+Voir utliser SRI (Subresource Integrety).
+Réduire la possibilité d'injection XSS. (innerHTML a voir, si gardé).
+Régler le problème des images - Bloquer upload SVG (ou sanitizer via conversion canvas).
+Devenir conforme aux règles du RGPD. Service avec donnée de mineur → obtenir consentement des parents. (Possible a l'inscription en centre de loisirs de la commune). Voir DPIA.
+Prévoir adaptation et conseil indiqué pour le stockage des données sur serveur. Chiffrement en transit : obligatoirement HTTPS/TLS à jour (TLS 1.2+).
+Prévoir procédures pour notification à l’autorité de contrôle (CNIL) en cas de fuite.
+
+
