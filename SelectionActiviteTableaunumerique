@@ -1,0 +1,557 @@
+# Copyright 2025 Sick Fox
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Tableau d'activités — Centre de loisirs (Pro)</title>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/sql-wasm.js"></script>
+<style>
+  :root{
+    --bg:linear-gradient(180deg,#ecf3ff 0%, #ffffff 60%);
+    --panel:#ffffffee; --ink:#0f172a; --muted:#6b7280; --accent:#2563eb;
+    --ring:#a5b4fc; --glass:rgba(255,255,255,.6); --bubble-size:72px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial,sans-serif;color:var(--ink);background:#eef3fb}
+  #app{height:100%;display:flex;flex-direction:column;background:var(--bg)}
+  header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;backdrop-filter:saturate(120%) blur(6px);position:sticky;top:0;z-index:5}
+  header h1{font-size:15px;margin:0;font-weight:800;letter-spacing:.2px}
+  .top-controls{display:flex;gap:8px;align-items:center}
+  button, input, select{font-size:15px}
+  button{padding:9px 12px;border-radius:12px;border:1px solid #d7e0ee;background:linear-gradient(#fff,#f8fbff);cursor:pointer;box-shadow:0 1px 0 #fff inset}
+  button:hover{border-color:#cbd5e1}
+  button.primary{background:linear-gradient(#2563eb,#1d4ed8);color:#fff;border-color:#1e40af;box-shadow:none}
+  main{flex:1;display:flex;gap:12px;padding:12px}
+  .panel{width:370px;min-width:270px;background:var(--panel);border:1px solid #e6ecf5;border-radius:14px;padding:12px;box-shadow:0 8px 26px rgba(30,40,60,0.07);overflow:auto}
+  .panel h2{margin:6px 0 10px 0;font-size:14px;text-transform:uppercase;letter-spacing:.12em;color:#475569}
+  .form-row{display:flex;gap:8px;margin-bottom:8px}
+  .stack{display:flex;flex-direction:column;gap:8px}
+  .muted{color:var(--muted);font-size:13px}
+  .field{padding:9px 10px;border-radius:10px;border:1px solid #d7dbe0;background:#fff}
+  .badge{font-size:12px;padding:4px 8px;border-radius:999px;background:#eef2ff;border:1px solid #e0e7ff;color:#3730a3}
+  .names-admin{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto;border-top:1px dashed #e8eefb;padding-top:8px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .row .who{display:flex;align-items:center;gap:8px}
+  .bubble{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;min-width:var(--bubble-size);height:var(--bubble-size);padding:8px;color:#fff;font-weight:800;cursor:grab;user-select:none;box-shadow:0 6px 14px rgba(0,0,0,0.14);letter-spacing:.2px}
+  .bubble:active{transform:scale(.98)}
+  .small{font-size:13px;padding:6px 8px}
+  .ghost{opacity:.55}
+  .stage{flex:1;border-radius:14px;padding:12px;display:flex;flex-direction:column;background:linear-gradient(180deg,#f6f9ff, #ffffff 40%)}
+  .stage-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .day-preview{display:flex;gap:10px;align-items:center}
+  .day-preview #currentDate{font-weight:800}
+  .chip{padding:6px 10px;border-radius:999px;background:#fff;border:1px solid #e5e7eb;font-size:13px}
+  .activities{flex:1;display:flex;gap:12px;flex-wrap:wrap;align-content:flex-start;margin-top:12px;justify-content:center}
+  .activity-card{width:310px;height:242px;border-radius:16px;position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:stretch;box-shadow:0 12px 28px rgba(20,30,40,0.08);background:#c7d2fe}
+  .act-title{position:absolute;left:10px;top:10px;right:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:10px;background:rgba(0,0,0,0.48);color:#fff;font-weight:900;backdrop-filter:blur(2px)}
+  .act-left{display:flex;align-items:center;gap:8px}
+  .act-ic{width:34px;height:34px;flex:0 0 34px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25)}
+  .act-name{display:flex;align-items:center;gap:6px}
+  .dropzone{position:absolute;left:10px;right:10px;bottom:10px;top:58px;border-radius:12px;padding:8px;display:flex;flex-wrap:wrap;gap:8px;align-content:flex-start;overflow:auto;background:rgba(255,255,255,0.14);outline:1px dashed rgba(255,255,255,.35)}
+  .dropzone.highlight{outline:4px solid rgba(255,255,255,0.6)}
+  footer{padding:8px;text-align:center;font-size:13px;color:#6b7280}
+  @media (max-width:1000px){main{flex-direction:column}.panel{width:100%;order:2}.stage{order:1}}
+  #iconMenu{position:fixed;display:none;background:#fff;border:1px solid #d7e0ee;border-radius:12px;padding:8px;gap:6px;box-shadow:0 14px 36px rgba(0,0,0,.18);z-index:10000;max-width:280px;flex-wrap:wrap}
+  #iconMenu span{font-size:22px;cursor:pointer;padding:6px 8px;border-radius:10px;display:inline-flex}
+  #iconMenu span:hover{background:#f2f4f8}
+  .child-names{display:none;margin:10px 0 12px;background:var(--glass);border:1px solid #e6ecf5;border-radius:12px;padding:10px;max-height:170px;overflow:auto}
+  .child-names .bubble{min-width:58px;height:58px;font-size:0.95rem}
+  .search{display:flex;gap:6px}
+  .search input{flex:1}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Tableau d’activités — Centre de loisirs</h1>
+    <div class="top-controls">
+      <span class="badge">Pro</span>
+      <button id="enterFull" title="Plein écran">Plein écran</button>
+      <button id="openAdmin" title="Aller à l’administration">Admin</button>
+      <button id="hideUI" class="primary" title="Basculer mode enfant">Mode Enfant</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel" id="adminPanel" aria-label="Administration">
+      <div class="stack">
+        <h2>Connexion</h2>
+        <div class="form-row">
+          <input id="adminPassInput" class="field" type="password" placeholder="Mot de passe admin" />
+          <button id="unlockBtn" class="small">Ouvrir</button>
+        </div>
+        <div class="muted">Mot de passe par défaut : <b>Joietloisirs</b></div>
+      </div>
+
+      <div id="adminArea" style="display:none" class="stack">
+        <h2>Prénoms (max 150)</h2>
+        <div class="form-row search">
+          <input id="newName" class="field" placeholder="Prénom Nom" />
+          <button id="addName" class="small">Ajouter</button>
+        </div>
+        <div class="form-row">
+          <label class="chip">Taille des bulles : <input id="bubbleSize" type="range" min="52" max="120" value="72" /> <span id="bubbleSizeVal">72</span>px</label>
+          <button id="sortAZ" class="small" title="Trier A→Z">Trier A→Z</button>
+        </div>
+        <div id="namesAdminList" class="names-admin"></div>
+
+        <h2>Créer activité</h2>
+        <div class="form-row"><input id="actTitle" class="field" placeholder="Titre activité" /></div>
+        <div class="form-row">
+          <select id="actType" class="field"><option value="image">Image</option><option value="color">Couleur</option></select>
+          <input id="actColor" class="field" type="color" value="#ff7f50" />
+        </div>
+        <div class="form-row">
+          <input id="actFile" class="field" type="file" accept="image/*" />
+          <button id="addAct" class="small">Ajouter activité</button>
+        </div>
+
+        <h2>Fonds journaliers</h2>
+        <div class="muted">Associe une image de fond à une date précise (stockée localement).</div>
+        <div class="form-row">
+          <input id="bgDate" class="field" type="date" />
+          <input id="bgFile" class="field" type="file" accept="image/*" />
+          <button id="addBg" class="small">Ajouter fond</button>
+        </div>
+
+        <h2>Options</h2>
+        <div class="form-row">
+          <button id="resetDay" class="small">Réinitialiser la journée</button>
+          <button id="exportBtn" class="small">Exporter JSON</button>
+          <input id="importFile" class="field" type="file" accept="application/json" />
+        </div>
+        <div class="form-row">
+          <button id="changePassBtn" class="small">Changer mot de passe</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="stage">
+      <div class="stage-toolbar">
+        <div class="day-preview">
+          <div id="currentDate"></div>
+          <div class="chip">Fonds du jour si disponible</div>
+        </div>
+        <div class="muted" id="counterInfo"></div>
+      </div>
+
+      <div id="childNames" class="child-names" aria-hidden="true"></div>
+
+      <div class="activities" id="activities"></div>
+
+      <footer>Glisse ton prénom sur l’activité choisie. Les choix sont sauvegardés localement sur cet appareil.</footer>
+    </section>
+  </main>
+</div>
+
+<!-- Menu flottant pictogrammes -->
+<div id="iconMenu" role="menu" aria-hidden="true"></div>
+
+<script>
+/* ===== Données & helpers ===== */
+const STORAGE='cl_pro_v2';
+const SQL_KEY='cl_pro_sqlite_v1';
+let state={people:[],activities:[],backgrounds:{},settings:{bubbleSize:72}};
+try{const raw=localStorage.getItem(STORAGE);if(raw)state=JSON.parse(raw);}catch(e){console.error(e);} // on garde les autres données
+const ICONS=['🎨','⚽','🎵','📚','🍳','🚲','🖍️','🎤','🎬','🧩','🚀','🌳','🎯','🧪','🧱','🧘','🏊','🧺','🖼️','🎮','🧵','🎭','🎲','🏸','🏕️','🎈'];
+const UID=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+const save=()=>localStorage.setItem(STORAGE,JSON.stringify(state));
+const todayISO=(d=new Date())=>d.toISOString().slice(0,10);
+const colorFrom=(s)=>{let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))%360;return `hsl(${h} 70% 48%)`};
+
+/* ===== Hash helper (Web Crypto) ===== */
+async function hashSHA256(str){
+  const encoder=new TextEncoder();
+  const data=encoder.encode(str);
+  const hashBuffer=await crypto.subtle.digest("SHA-256",data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+/* ===== SQLite (sql.js) initialization & persistence to localStorage ===== */
+let db=null;
+let initDBPromise = initDB();
+async function exportDBToLocalStorage(){
+  try{
+    const data = db.export();
+    const b64 = btoa(String.fromCharCode(...data));
+    localStorage.setItem(SQL_KEY,b64);
+  }catch(e){console.error('Export DB failed',e);} 
+}
+async function importDBFromLocalStorage(){
+  const b64=localStorage.getItem(SQL_KEY);
+  if(!b64) return null;
+  try{
+    const binStr = atob(b64);
+    const len = binStr.length;
+    const u8 = new Uint8Array(len);
+    for(let i=0;i<len;i++) u8[i]=binStr.charCodeAt(i);
+    return u8;
+  }catch(e){console.error('Import DB failed',e);return null;}
+}
+
+async function initDB(){
+  // initSqlJs is provided by the included script
+  const SQL = await initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/sql-wasm.wasm` });
+  const existing = await importDBFromLocalStorage();
+  if(existing){ db = new SQL.Database(existing); }
+  else{ db = new SQL.Database(); db.run("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"); }
+
+  // Ensure adminPass exists
+  try{
+    const stmt = db.prepare("SELECT value FROM settings WHERE key='adminPass'");
+    if(!stmt.step()){
+      const hash = await hashSHA256("Joietloisirs");
+      db.run("INSERT INTO settings (key,value) VALUES (?,?)", ["adminPass", hash]);
+      await exportDBToLocalStorage();
+    }
+    stmt.free();
+  }catch(e){console.error(e);}  
+}
+
+/* ===== DOM refs ===== */
+const activitiesEl=document.getElementById('activities');
+const currentDateEl=document.getElementById('currentDate');
+const counterInfo=document.getElementById('counterInfo');
+const enterFull=document.getElementById('enterFull');
+const openAdmin=document.getElementById('openAdmin');
+const adminPanel=document.getElementById('adminPanel');
+const adminArea=document.getElementById('adminArea');
+const unlockBtn=document.getElementById('unlockBtn');
+const adminPassInput=document.getElementById('adminPassInput');
+const newNameInput=document.getElementById('newName');
+const addNameBtn=document.getElementById('addName');
+const namesAdminList=document.getElementById('namesAdminList');
+const bubbleSizeInput=document.getElementById('bubbleSize');
+const bubbleSizeVal=document.getElementById('bubbleSizeVal');
+const sortAZBtn=document.getElementById('sortAZ');
+const actTitle=document.getElementById('actTitle');
+const actType=document.getElementById('actType');
+const actColor=document.getElementById('actColor');
+const actFile=document.getElementById('actFile');
+const addActBtn=document.getElementById('addAct');
+const bgDate=document.getElementById('bgDate');
+const bgFile=document.getElementById('bgFile');
+const addBgBtn=document.getElementById('addBg');
+const resetDayBtn=document.getElementById('resetDay');
+const exportBtn=document.getElementById('exportBtn');
+const importFile=document.getElementById('importFile');
+const iconMenu=document.getElementById('iconMenu');
+const childNames=document.getElementById('childNames');
+const hideUI=document.getElementById('hideUI');
+const changePassBtn=document.getElementById('changePassBtn');
+
+/* ===== Vérification admin (attend initDBPromise pour s'assurer que db est prêt) ===== */
+unlockBtn.onclick=async()=>{
+  await initDBPromise;
+  try{
+    const stmt = db.prepare("SELECT value FROM settings WHERE key='adminPass'");
+    if(stmt.step()){
+      const storedHash = stmt.getAsObject().value;
+      const enteredHash = await hashSHA256(adminPassInput.value);
+      if(enteredHash === storedHash){
+        adminArea.style.display='block';
+        adminPassInput.value='';
+      }else{
+        alert('Mot de passe incorrect');
+      }
+    }
+    stmt.free();
+  }catch(e){console.error(e);alert('Erreur lors de la vérification du mot de passe');}
+};
+
+/* ===== Change password (UI) ===== */
+changePassBtn.onclick=async()=>{
+  await initDBPromise;
+  const current = prompt('Mot de passe actuel :');
+  if(current===null) return;
+  const currentHash = await hashSHA256(current);
+  const stmt = db.prepare("SELECT value FROM settings WHERE key='adminPass'");
+  let ok=false;
+  if(stmt.step()){ const stored=stmt.getAsObject().value; if(currentHash===stored) ok=true; }
+  stmt.free();
+  if(!ok){ alert('Mot de passe actuel incorrect'); return; }
+  const np = prompt('Nouveau mot de passe :'); if(!np) return; const np2 = prompt('Confirmer nouveau mot de passe :'); if(np!==np2){ alert('Les mots de passe ne correspondent pas'); return; }
+  const newHash = await hashSHA256(np);
+  db.run("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", ['adminPass', newHash]);
+  await exportDBToLocalStorage();
+  alert('Mot de passe changé');
+}
+
+/* ===== État initial (démo) ===== */
+if(state.activities.length===0 && state.people.length===0){
+  state.activities.push({id:UID(),title:'Peinture',type:'color',data:'#ff7f50',icon:'🎨'});
+  state.activities.push({id:UID(),title:'Jeux Extérieurs',type:'color',data:'#4caf50',icon:'⚽'});
+  state.activities.push({id:UID(),title:'Atelier Cuisine',type:'color',data:'#2196f3',icon:'🍳'});
+  ['Albert Einstein','Nicolas Tesla','Jeveuxpas Faireactivite','Alain Turing','Isaac N'].forEach(n=>state.people.push({id:UID(),name:n,activityId:null,color:colorFrom(n)}));
+  save();
+}
+
+/* ===== Rendu principal ===== */
+let childMode=false;
+let prevAdminPanelDisplay=null, prevAdminAreaDisplay=null, hiddenEls=[];
+function render(){
+  currentDateEl.textContent=todayISO();
+  const k=todayISO(), bg=state.backgrounds[k];
+  const stage=document.querySelector('.stage');
+  if(bg){ stage.style.backgroundImage=`url(${bg})`; stage.style.backgroundSize='cover'; stage.style.backgroundPosition='center'; }
+  else { stage.style.backgroundImage=''; stage.style.background='linear-gradient(180deg,#f6f9ff, #ffffff 40%)'; }
+  document.documentElement.style.setProperty('--bubble-size', (state.settings.bubbleSize||72)+'px');
+  bubbleSizeInput.value=state.settings.bubbleSize||72; bubbleSizeVal.textContent=bubbleSizeInput.value;
+
+  activitiesEl.innerHTML='';
+  state.activities.forEach(act=>{
+    const card=document.createElement('div'); card.className='activity-card';
+    if(act.type==='image'&&act.data){ card.style.backgroundImage=`url(${act.data})`; card.style.backgroundSize='cover'; card.style.backgroundPosition='center'; }
+    else { card.style.background=act.data||'#93c5fd'; }
+
+    const title=document.createElement('div'); title.className='act-title';
+    const left=document.createElement('div'); left.className='act-left';
+    const ic=document.createElement('div'); ic.className='act-ic'; ic.textContent=act.icon||'🎯';
+    const nameWrap=document.createElement('div'); nameWrap.className='act-name';
+    const tspan=document.createElement('div'); tspan.textContent=act.title; nameWrap.appendChild(tspan);
+    left.appendChild(ic); left.appendChild(nameWrap); title.appendChild(left);
+
+    if(!childMode){
+      ic.title='Changer le pictogramme';
+      ic.style.cursor='pointer';
+      ic.addEventListener('click', (e)=>openIconMenu(e,act));
+      const actions=document.createElement('div');
+      const editBtn=document.createElement('button'); editBtn.className='small'; editBtn.textContent='Éditer';
+      editBtn.onclick=()=>{const nv=prompt('Nouveau titre :',act.title);if(nv!==null){const t=nv.trim();if(t){act.title=t;save();render();}}};
+      const delBtn=document.createElement('button'); delBtn.className='small'; delBtn.textContent='Supprimer';
+      delBtn.onclick=()=>{ if(confirm(`Supprimer l’activité « ${act.title} » ?`)){ state.people.forEach(p=>{if(p.activityId===act.id)p.activityId=null;}); state.activities=state.activities.filter(x=>x.id!==act.id); save(); render();}};
+      actions.appendChild(editBtn); actions.appendChild(delBtn); title.appendChild(actions);
+    }
+
+    card.appendChild(title);
+
+    const drop=document.createElement('div'); drop.className='dropzone'; drop.dataset.actId=act.id;
+    state.people.filter(p=>p.activityId===act.id).forEach(p=>drop.appendChild(bubbleEl(p)));
+    card.appendChild(drop);
+    activitiesEl.appendChild(card);
+  });
+
+  renderNamesAdmin();
+
+  const assigned=state.people.filter(p=>p.activityId).length;
+  counterInfo.textContent=`${assigned}/${state.people.length} placé·e·s`;
+
+  if(childMode){
+    childNames.style.display='block'; childNames.innerHTML='';
+    const wrap=document.createElement('div'); wrap.style.display='flex'; wrap.style.flexWrap='wrap'; wrap.style.gap='8px';
+    state.people.forEach(p=>{ const b=bubbleEl(p); b.style.minWidth='58px'; b.style.height='58px'; b.style.fontSize='.95rem'; wrap.appendChild(b); });
+    childNames.appendChild(wrap);
+  }else{
+    childNames.style.display='none'; childNames.innerHTML='';
+  }
+
+  attachDrag();
+}
+
+/* ===== Bulle personne ===== */
+function bubbleEl(p){
+  const b=document.createElement('div');
+  b.className='bubble'; b.dataset.personId=p.id;
+  b.textContent=p.name.split(' ')[0];
+  b.style.background=p.color||colorFrom(p.name);
+  b.title=p.name;
+  return b;
+}
+
+/* ===== Liste prénoms (admin) ===== */
+function renderNamesAdmin(){
+  namesAdminList.innerHTML='';
+  const term=(newNameInput.dataset.search||'').trim().toLowerCase();
+  const unassigned=state.people.filter(p=>!p.activityId && (!term || p.name.toLowerCase().includes(term)));
+  unassigned.forEach(p=>{
+    const row=document.createElement('div'); row.className='row';
+    const who=document.createElement('div'); who.className='who';
+    const b=bubbleEl(p); b.style.cursor='default'; b.style.width='40px'; b.style.height='40px'; b.style.fontSize='.9rem';
+    who.appendChild(b); who.appendChild(Object.assign(document.createElement('div'),{textContent:p.name}));
+    const actions=document.createElement('div');
+    if(!childMode){
+      const edit=document.createElement('button'); edit.className='small'; edit.textContent='Édit';
+      edit.onclick=()=>{const nv=prompt('Modifier nom',p.name); if(nv!==null){const t=nv.trim(); if(t){p.name=t;p.color=colorFrom(t);save();render();}}};
+      const del=document.createElement('button'); del.className='small'; del.textContent='Suppr';
+      del.onclick=()=>{ if(confirm('Supprimer '+p.name+' ?')){ state.people=state.people.filter(x=>x.id!==p.id); save(); render(); } };
+      actions.appendChild(edit); actions.appendChild(del);
+    }
+    row.appendChild(who); row.appendChild(actions); namesAdminList.appendChild(row);
+  });
+}
+
+/* ===== Menu icônes ===== */
+function openIconMenu(ev, act){
+  if(childMode) return;
+  iconMenu.innerHTML='';
+  ICONS.forEach(sym=>{
+    const span=document.createElement('span'); span.textContent=sym;
+    span.onclick=()=>{ act.icon=sym; save(); render(); closeIconMenu(); };
+    iconMenu.appendChild(span);
+  });
+  iconMenu.style.display='flex';
+  iconMenu.style.left=Math.min(ev.clientX+6, window.innerWidth-iconMenu.offsetWidth-8)+'px';
+  iconMenu.style.top =Math.min(ev.clientY+6, window.innerHeight-iconMenu.offsetHeight-8)+'px';
+}
+function closeIconMenu(){ iconMenu.style.display='none'; }
+document.addEventListener('click', (ev)=>{ if(!ev.target.closest('#iconMenu') && !ev.target.classList.contains('act-ic')) closeIconMenu(); });
+
+/* ===== Ajout prénom ===== */
+addNameBtn.onclick=()=>{
+  const v=(newNameInput.value||'').trim(); if(!v) return;
+  if(state.people.length>=150){ alert('Limite atteinte (150 maximum)'); return; }
+  if(state.people.some(p=>p.name.toLowerCase()===v.toLowerCase())){ alert('Ce prénom existe déjà.'); return; }
+  state.people.push({id:UID(),name:v,activityId:null,color:colorFrom(v)}); save(); newNameInput.value=''; render();
+};
+newNameInput.addEventListener('keydown',e=>{ if(e.key==='Enter') addNameBtn.click(); });
+newNameInput.addEventListener('input',()=>{ newNameInput.dataset.search=newNameInput.value; renderNamesAdmin(); });
+
+/* ===== Tri A→Z ===== */
+sortAZBtn.onclick=()=>{ state.people.sort((a,b)=>a.name.localeCompare(b.name,'fr')); save(); render(); };
+
+/* ===== Taille bulles ===== */
+bubbleSizeInput.oninput=()=>{ state.settings.bubbleSize=bubbleSizeInput.value; bubbleSizeVal.textContent=bubbleSizeInput.value; save(); render(); };
+
+/* ===== Activités ===== */
+addActBtn.onclick=()=>{
+  const title=(actTitle.value||'').trim(); if(!title){ alert('Titre requis'); return; }
+  if(actType.value==='image'){
+    const f=actFile.files[0]; if(!f){ alert('Choisis une image'); return; }
+    const r=new FileReader(); r.onload=()=>{ state.activities.push({id:UID(),title,type:'image',data:r.result,icon:'🖼️'}); save(); render(); actTitle.value=''; actFile.value=''; }; r.readAsDataURL(f);
+  }else{
+    state.activities.push({id:UID(),title,type:'color',data:actColor.value,icon:'🎨'}); save(); render(); actTitle.value='';
+  }
+};
+/* ===== Fonds ===== */
+addBgBtn.onclick=()=>{
+  const date=bgDate.value; if(!date){ alert('Choisis une date'); return; }
+  const f=bgFile.files[0]; if(!f){ alert('Choisis un fichier'); return; }
+  const r=new FileReader(); r.onload=()=>{ state.backgrounds[date]=r.result; save(); render(); bgDate.value=''; bgFile.value=''; }; r.readAsDataURL(f);
+};
+/* ===== Réinitialiser journée ===== */
+resetDayBtn.onclick=()=>{ if(!confirm('Réinitialiser la journée ?')) return; state.people.forEach(p=>p.activityId=null); save(); render(); };
+/* ===== Export / Import ===== */
+exportBtn.onclick=()=>{ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='centre_loisirs_export.json'; a.click(); URL.revokeObjectURL(url); };
+importFile.onchange=()=>{
+  const f=importFile.files[0]; if(!f) return; const r=new FileReader();
+  r.onload=()=>{ try{ const obj=JSON.parse(r.result); if(confirm('Importer va remplacer l’état actuel. Continuer ?')){ state=obj; save(); render(); } }catch(e){ alert('Fichier invalide'); } };
+  r.readAsText(f);
+};
+
+/* ===== Plein écran (manuel) ===== */
+enterFull.onclick=()=>{ if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else document.exitFullscreen().catch(()=>{}); };
+
+/* ===== Mode Enfant ===== */
+hideUI.onclick=async ()=>{
+  if(!childMode){
+    prevAdminPanelDisplay = adminPanel.style.display || getComputedStyle(adminPanel).display;
+    prevAdminAreaDisplay  = adminArea.style.display  || getComputedStyle(adminArea).display;
+    adminPanel.style.display='none';
+    openAdmin.style.display='none';
+    enterFull.style.display='none';
+    hiddenEls=[addActBtn,exportBtn,importFile,addBgBtn,resetDayBtn,bubbleSizeInput];
+    hiddenEls.forEach(el=>{ if(el){ el.__prevDisplay=el.style.display; el.style.display='none'; }});
+    if(!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(()=>{});
+    childMode=true; hideUI.textContent='Quitter mode enfant';
+    render();
+  }else{
+    await initDBPromise; // ensure db ready
+    const pass=prompt('Mot de passe admin pour quitter :');
+    if(pass===null) return; // cancelled
+    try{
+      const stmt=db.prepare("SELECT value FROM settings WHERE key='adminPass'");
+      let ok=false;
+      if(stmt.step()){ const stored=stmt.getAsObject().value; const enteredHash=await hashSHA256(pass); if(enteredHash===stored) ok=true; }
+      stmt.free();
+      if(ok){
+        childMode=false; hideUI.textContent='Mode Enfant';
+        adminPanel.style.display = prevAdminPanelDisplay || 'block';
+        adminArea.style.display  = prevAdminAreaDisplay  || 'none';
+        openAdmin.style.display=''; enterFull.style.display='';
+        hiddenEls.forEach(el=>{ if(el) el.style.display=(el.__prevDisplay!==undefined?el.__prevDisplay:''); });
+        if(document.fullscreenElement) document.exitFullscreen?.().catch(()=>{});
+        render();
+      }else{
+        alert('Mot de passe incorrect — vous restez en mode enfant.');
+      }
+    }catch(e){console.error(e); alert('Erreur lors de la vérification du mot de passe');}
+  }
+};
+
+/* ===== Drag & Drop (pointer) ===== */
+let dragging=null;
+function attachDrag(){
+  document.querySelectorAll('.bubble').forEach(b=>{ b.onpointerdown=onPointerDown; b.style.touchAction='none'; });
+  document.querySelectorAll('.dropzone').forEach(d=>d.ondragover=(e)=>e.preventDefault());
+}
+function onPointerDown(e){
+  e.preventDefault();
+  const el=e.currentTarget, pid=el.dataset.personId, rect=el.getBoundingClientRect();
+  const clone=el.cloneNode(true);
+  Object.assign(clone.style,{position:'fixed',left:rect.left+'px',top:rect.top+'px',width:rect.width+'px',height:rect.height+'px',zIndex:9999,pointerEvents:'none',transform:'scale(1.02)'});
+  document.body.appendChild(clone);
+  dragging={orig:el,clone,personId:pid,ox:e.clientX-rect.left,oy:e.clientY-rect.top};
+  el.style.visibility='hidden';
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+}
+function onPointerMove(e){
+  if(!dragging) return;
+  const x=e.clientX-dragging.ox, y=e.clientY-dragging.oy;
+  dragging.clone.style.left=x+'px'; dragging.clone.style.top=y+'px';
+  document.querySelectorAll('.dropzone').forEach(z=>z.classList.remove('highlight'));
+  const under=document.elementFromPoint(e.clientX,e.clientY);
+  if(under){ const dz=under.closest('.dropzone'); if(dz) dz.classList.add('highlight'); }
+}
+function onPointerUp(e){
+  if(!dragging) return;
+  const under=document.elementFromPoint(e.clientX,e.clientY);
+  let dropped=false;
+  if(under){
+    const dz=under.closest('.dropzone');
+    if(dz){
+      const person=state.people.find(p=>p.id===dragging.personId);
+      if(person){ person.activityId=dz.dataset.actId; dropped=true; }
+    }else{
+      const back=under.closest('#namesAdminList') || under.closest('#childNames');
+      if(back){ const person=state.people.find(p=>p.id===dragging.personId); if(person){ person.activityId=null; dropped=true; } }
+    }
+  }
+  if(dragging.clone?.remove) dragging.clone.remove();
+  dragging.orig.style.visibility='';
+  document.querySelectorAll('.dropzone').forEach(z=>z.classList.remove('highlight'));
+  window.removeEventListener('pointermove', onPointerMove);
+  window.removeEventListener('pointerup', onPointerUp);
+  dragging=null;
+  if(dropped) save();
+  render();
+}
+
+/* ===== Click bulle = nom complet (hors zone admin) ===== */
+document.addEventListener('click', e=>{
+  const b=e.target.closest('.bubble'); if(!b) return;
+  if(document.getElementById('adminArea')?.contains(b)) return;
+  const p=state.people.find(x=>x.id===b.dataset.personId); if(p) alert(p.name);
+});
+
+/* ===== Assurer les couleurs ===== */
+state.people.forEach(p=>{ if(!p.color) p.color=colorFrom(p.name); });
+
+render();
+</script>
+</body>
+</html>
