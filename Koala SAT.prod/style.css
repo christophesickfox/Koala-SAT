@@ -58,4 +58,113 @@ footer{padding:8px;text-align:center;font-size:13px;color:#6b7280}
 #adminArea {
   display: none;
 }
+/* MODAL Mot de pass Admin a faire fonctionner */
+#pw-setup-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6); /* fond sombre translucide */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(4px);
+}
+#pw-setup-modal .pw-modal-box {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 22px 26px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.25);
+  width: 100%;
+  max-width: 380px;
+  animation: fadeInModal 0.3s ease;
+  font-family: Inter, system-ui, Arial, sans-serif;
+}
+#pw-setup-modal h2 {
+  margin: 0 0 10px 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+#pw-setup-modal label {
+  display: block;
+  font-size: 0.9rem;
+  color: #374151;
+  margin: 8px 0 4px;
+}
+#pw-setup-modal input[type="password"] {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid #d7e0ee;
+  background: #f9fafb;
+  font-size: 0.95rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+#pw-setup-modal input[type="password"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--ring);
+  outline: none;
+}
+#pw-setup-modal #pw-msg {
+  min-height: 20px;
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: #b91c1c;
+}
+#pw-setup-modal .pw-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+#pw-setup-modal button {
+  border-radius: 10px;
+  border: 1px solid #d7e0ee;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+#pw-setup-modal button:hover {
+  background: #f3f4f6;
+}
+#pw-setup-modal #pw-save {
+  background: linear-gradient(#2563eb, #1d4ed8);
+  border: none;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(37,99,235,0.3);
+}
+#pw-setup-modal #pw-save:hover {
+  filter: brightness(1.1);
+}
+#pw-setup-modal #pw-cancel {
+  background: #fff;
+  color: #374151;
+}
+/* Animation d’apparition */
+@keyframes fadeInModal {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* === Indicateur de force du mot de passe === */
+#pw-setup-modal .pw-strength {
+  height: 6px;
+  border-radius: 6px;
+  margin-top: 6px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+#pw-setup-modal .pw-strength-bar {
+  height: 100%;
+  width: 0%;
+  background: #f87171; /* rouge faible par défaut */
+  transition: width 0.3s, background 0.3s;
+}
+#pw-setup-modal .pw-strength-label {
+  font-size: 0.8rem;
+  margin-top: 4px;
+  color: #6b7280;
+  text-align: right;
+}
 
