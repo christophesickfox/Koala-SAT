@@ -167,4 +167,33 @@ footer{padding:8px;text-align:center;font-size:13px;color:#6b7280}
   color: #6b7280;
   text-align: right;
 }
+/* === Drag & Drop des bulles === */
+.dragging-clone {
+  position: fixed !important;
+  pointer-events: none !important;
+  z-index: 99999;
+  opacity: 0.9;
+  transform: translate(-50%, -50%) scale(1.05); /* ✅ centré et légèrement agrandi */
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  border-radius: 999px;
+  transition: none !important;
+  user-select: none;
+  cursor: grabbing;
+}
+/* L'état visuel d'une zone cible pendant le survol */
+.dropzone.highlight {
+  outline: 3px dashed #3b82f6 !important;
+  outline-offset: 4px;
+  background: rgba(59, 130, 246, 0.1);
+  transition: background 0.2s ease;
+}
+/* Le curseur "grabbing" quand on tient une bulle */
+.bubble:active {
+  cursor: grabbing;
+}
+/* Empêche les transitions visuelles parasites lors du drag */
+.bubble, .dragging-clone {
+  transition: none !important;
+}
+
 

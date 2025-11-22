@@ -1,14 +1,12 @@
-/* app.js — Version finale (proof of concept et sécu) fusionnée avec
+/* app.js — Version finale fusionnée & corrigée
    - sqlite local via sql-wasm.wasm (local)
    - admin password: PBKDF2(salt) -> hash stored in SQLite
    - UI admin builder safe
-   - showPasswordSetup modal included (politique de sécurité)
+   - showPasswordSetup modal included
    - pointer-based drag & drop (clone + elementFromPoint)
    - single DOMContentLoaded
-   - Size image maximum 2mo
    
-   - Reste chiffré en Aes sur BDD
-   Problème : changer pictogramme impossible, bulle non déplaçable, taille non ajustable, mode enfant pas de bulle.
+   Reste code a consolidé. Chiffrement AES.  
 */
 
 /* BLOC 1 — Helpers, sécurité & DB
@@ -23,7 +21,6 @@ let state = {
 };
 
 const STORAGE = { LS_KEY: "sat_state", DB_KEY: "sat_db" };
-const ICONS = ['🎨','⚽','🎵','📚','🍳','🚲','🖍️','🎤','🎬','🧩','🚀','🌳','🎯','🧪','🧱','🧘','🏊','🧺','🖼️','🎮','🧵','🎭','🎲','🏸','🏕️','🎈'];
 
 function UID(){ return "_" + Math.random().toString(36).substr(2,9); }
 function colorFrom(s){ if(!s) return '#999'; let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))%360; return `hsl(${h} 70% 48%)`; }
@@ -75,7 +72,7 @@ async function restoreDB(){
     db = new SQL.Database(new Uint8Array(data));
     const row = db.exec("SELECT value FROM settings WHERE key='state'");
     if(row && row[0] && row[0].values && row[0].values[0]){
-      state = JSON.parse(row[0].values[0][0]);
+      try { state = JSON.parse(row[0].values[0][0]); } catch(e){ console.warn("restoreDB: failed parse state", e); }
     }
   } catch (err) {
     console.error("restoreDB error:", err);
@@ -132,8 +129,8 @@ function policyCheck(pass){
   return { ok: reasons.length === 0, reasons };
 }
 
-/* BLOC 2 — Render functions (defini après DOMContentLoaded) ne pas changer.
-   =========================================================== */
+/* BLOC 2 — Render functions
+   ========================= */
 
 function renderBackground(){
   const d = new Date().toISOString().slice(0,10);
@@ -159,7 +156,10 @@ function renderNamesAdmin(){
   (state.people || []).forEach(p=>{
     const row = document.createElement('div'); row.className='row';
     const who = document.createElement('div'); who.className='who';
-    const bub = document.createElement('div'); bub.className='bubble'; bub.style.background = p.color || colorFrom(p.name); bub.textContent = (p.name||'')[0] || '?';
+    const bub = document.createElement('div'); bub.className='bubble';
+    bub.style.background = p.color || colorFrom(p.name);
+    bub.textContent = (p.name||'')[0] || '?';
+    bub.dataset.id = p.id; // <-- ensure id
     const span = document.createElement('span'); span.textContent = p.name || '';
     who.appendChild(bub); who.appendChild(span);
     const actions = document.createElement('div');
@@ -173,78 +173,144 @@ function renderNamesAdmin(){
   });
 }
 
-function renderChildNames(){
-  const container = document.getElementById("childNames");
-  if(!container) return;
-  container.innerHTML = "";
-  const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.flexWrap='wrap'; wrap.style.gap='8px';
-  (state.people || []).forEach(p=>{
-    const b = document.createElement('div'); b.className='bubble';
-    b.textContent = (p.name||'').split(' ')[0] || p.name || '?';
+function renderChildNames() {
+  const wrap = document.getElementById('childNames');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+
+  const inner = document.createElement('div');
+  inner.style.display = 'flex';
+  inner.style.flexWrap = 'wrap';
+  inner.style.gap = '8px';
+
+  (state.people || []).forEach(p => {
+    if (p.activityId) return; // seulement les enfants non assignés
+    const b = document.createElement('div');
+    b.className = 'bubble';
+    b.textContent = ( (p.name || '').split(' ')[0] ) || '?';
     b.title = p.name;
+    b.dataset.id = p.id; // indispensable pour le drag - sinon ne fonctionne pas
     b.style.background = p.color || colorFrom(p.name);
-    b.dataset.id = p.id;
-    b.style.minWidth = (state.settings.bubbleSize||72)+'px';
-    b.style.height = (state.settings.bubbleSize||72)+'px';
-    wrap.appendChild(b);
+    b.style.minWidth = (state.settings.bubbleSize || 72) + 'px';
+    b.style.height = (state.settings.bubbleSize || 72) + 'px';
+    inner.appendChild(b);
   });
-  container.appendChild(wrap);
-}
-/* Réactivation du Drag & Drop sur les bulles */
-function attachBubbleEvents() {
-  document.querySelectorAll('.bubble').forEach(bubble => {
-    bubble.addEventListener('pointerdown', onPointerDown);
-  });
+
+  wrap.appendChild(inner);
 }
 
-/* Ajustement automatique de la taille des bulles */
-function adjustBubbleSizes() {
-  document.querySelectorAll('.bubble').forEach(bubble => {
-    const text = bubble.textContent.trim();
-    const base = 60; // taille minimale
-    const extra = Math.min(80, text.length * 5); // plus le prénom est long, plus la bulle s’adapte
-    bubble.style.width = base + extra + "px";
-    bubble.style.height = base + "px";
-    bubble.style.lineHeight = base + "px";
-    bubble.style.fontSize = "16px";
-  });
-}
-
-/* Surcharge du rendu enfants pour relier le drag et ajuster les bulles */
-const _renderChildNames = renderChildNames;
-renderChildNames = function() {
-  _renderChildNames();       // exécute le rendu normal
-  attachBubbleEvents();      // réactive le drag
-  adjustBubbleSizes();       // ajuste les tailles (voir RenderAll)
-};
-
-function renderActivities(){
+function renderActivities() {
   const wrap = document.getElementById("activities");
-  if(!wrap) return;
+  if (!wrap) return;
   wrap.innerHTML = "";
-  (state.activities || []).forEach(act=>{
-    const card = document.createElement('div'); card.className='activity-card';
-    if(act.type === 'image' && typeof act.data === 'string' && act.data.startsWith('data:image/')) {
-      card.style.background = `url(${act.data}) center/cover`; card.style.backgroundSize = 'cover';
+
+  (state.activities || []).forEach(act => {
+    const card = document.createElement('div');
+    card.className = 'activity-card';
+
+    // Gérer l'arrière-plan de l'activité
+    if (act.type === 'image' && typeof act.data === 'string' && act.data.startsWith('data:image/')) {
+      card.style.background = `url(${act.data}) center/cover`;
+      card.style.backgroundSize = 'cover';
       card.style.backgroundPosition = 'center';
     } else {
       card.style.background = act.data || '#c7d2fe';
     }
-    const title = document.createElement('div'); title.className='act-title';
-    const left = document.createElement('div'); left.className='act-left';
-    const ic = document.createElement('div'); ic.className='act-ic'; ic.textContent = act.icon || '🎯';
-    const name = document.createElement('div'); name.className='act-name'; name.textContent = act.title || 'Activité';
-    left.appendChild(ic); left.appendChild(name);
-    const del = document.createElement('button'); del.className='small'; del.textContent='✕';
-    del.addEventListener('click', ()=>{ if(confirm('Supprimer activité ?')){ state.activities = state.activities.filter(a=>a.id!==act.id); state.people.forEach(p=>{ if(p.activityId===act.id) p.activityId=null; }); saveStateToDB(); saveQuickState(); renderAll(); }});
-    title.appendChild(left); title.appendChild(del);
+
+    // Créer le titre et l'icône de l'activité
+    const title = document.createElement('div');
+    title.className = 'act-title';
+    const left = document.createElement('div');
+    left.className = 'act-left';
+    const ic = document.createElement('div');
+    ic.className = 'act-ic';
+    ic.textContent = act.icon || '🎯';  // Icône de l'activité (par défaut une cible 🎯)
+
+    // Lorsque l'icône est cliquée, afficher une liste de pictogrammes à choisir
+    ic.addEventListener('click', () => {
+      showIconSelectionMenu(ic, act);  // Afficher le menu de sélection des pictogrammes
+    });
+
+    const name = document.createElement('div');
+    name.className = 'act-name';
+    name.textContent = act.title || 'Activité';
+
+    left.appendChild(ic);
+    left.appendChild(name);
+
+    // Bouton de suppression de l'activité
+    const del = document.createElement('button');
+    del.className = 'small';
+    del.textContent = '✕';
+    del.addEventListener('click', () => {
+      if (confirm('Supprimer cette activité ?')) {
+        state.activities = state.activities.filter(a => a.id !== act.id);
+        state.people.forEach(p => {
+          if (p.activityId === act.id) p.activityId = null;
+        });
+        saveStateToDB();
+        saveQuickState();
+        renderAll();
+      }
+    });
+
+    title.appendChild(left);
+    title.appendChild(del);
     card.appendChild(title);
-    const dz = document.createElement('div'); dz.className='dropzone'; dz.dataset.id = act.id;
+
+    // Zone de dépôt (Dropzone)
+    const dz = document.createElement('div');
+    dz.className = 'dropzone';
+    dz.dataset.id = act.id;
     card.appendChild(dz);
+
     wrap.appendChild(card);
   });
+
   renderMembers();
 }
+
+// Afficher le menu de sélection des pictogrammes
+function showIconSelectionMenu(iconElement, activity) {
+  // Créer une fenêtre contextuelle avec une liste d'icônes à choisir
+  const iconMenu = document.createElement('div');
+  iconMenu.className = 'icon-menu';
+  iconMenu.style.position = 'absolute';
+  iconMenu.style.left = `${iconElement.getBoundingClientRect().left}px`;
+  iconMenu.style.top = `${iconElement.getBoundingClientRect().bottom}px`;
+  iconMenu.style.backgroundColor = '#fff';
+  iconMenu.style.border = '1px solid #ccc';
+  iconMenu.style.padding = '10px';
+  iconMenu.style.borderRadius = '5px';
+  iconMenu.style.zIndex = 10000;
+
+  const icons = ['🎨','⚽','🎵','📚','🍳','🚲','🖍️','🎤','🎬','🧩','🚀','🌳','🎯','🧪','🧱','🧘','🏊','🧺','🖼️','🎮','🧵','🎭','🎲','🏸','🏕️','🎈'];  // Liste d'icônes à choisir
+  icons.forEach(icon => {
+    const iconButton = document.createElement('button');
+    iconButton.textContent = icon;
+    iconButton.style.fontSize = '20px';
+    iconButton.style.margin = '5px';
+    iconButton.addEventListener('click', () => {
+      activity.icon = icon;  // Mettre à jour l'icône de l'activité
+      saveStateToDB();       // Sauvegarder l'état
+      saveQuickState();      // Sauvegarder rapidement
+      renderAll();           // Rafraîchir l'interface
+      document.body.removeChild(iconMenu);  // Fermer le menu après sélection
+    });
+    iconMenu.appendChild(iconButton);
+  });
+
+  // Ajouter le menu au body
+  document.body.appendChild(iconMenu);
+
+  // Fermer le menu si on clique en dehors
+  document.addEventListener('click', (event) => {
+    if (!iconMenu.contains(event.target) && event.target !== iconElement) {
+      document.body.removeChild(iconMenu);
+    }
+  }, { once: true });
+}
+
 
 function renderMembers(){
   document.querySelectorAll('.dropzone').forEach(dz => dz.innerHTML = '');
@@ -253,7 +319,7 @@ function renderMembers(){
     const dz = document.querySelector(`.dropzone[data-id='${p.activityId}']`);
     if(!dz) return;
     const bub = document.createElement('div'); bub.className='bubble'; bub.textContent = (p.name||'')[0] || '?'; bub.title = p.name;
-    bub.dataset.id = p.id;
+    bub.dataset.id = p.id; // ensure id
     bub.style.background = p.color || colorFrom(p.name);
     bub.style.minWidth = (state.settings.bubbleSize||72)+'px';
     bub.style.height = (state.settings.bubbleSize||72)+'px';
@@ -261,22 +327,161 @@ function renderMembers(){
   });
 }
 
-function renderAll(){
-  renderNamesAdmin();
-  renderChildNames();
-  renderActivities();
-  renderBackground();
-  renderCounter();
-  // attach pointer handlers after dom updated - Voir placement ? 
-  attachBubbleEvents();
-  adjustBubbleSizes();
+/* renderAll — Rendu global de l’application
+   (rattache les événements après DOM update)
+*/
+function renderAll() {
+  try {
+    renderNamesAdmin();      // panneau admin
+    renderChildNames();      // liste enfants libres
+    renderActivities();      // cartes d’activités
+    renderBackground();      // fond décoratif
+    renderCounter();         // compteur si existant
 
+    // Attacher events après mise à jour du DOM
+    setTimeout(() => {
+      attachBubbleEvents();   // rend les bulles draggables
+      adjustBubbleSizes();    // adapte la taille après insertion
+      console.log("✅ renderAll → bulles prêtes :", document.querySelectorAll(".bubble").length);
+    }, 0);
+
+  } catch (err) {
+    console.error("Erreur dans renderAll :", err);
+  }
 }
 
-/* BLOC 3 — showPasswordSetup + buildAdminUIIfMissing
-   =================================================== */
+/* BLOC 3 — Drag & Drop handlers (stable)
+   ====================================== */
 
-/* showPasswordSetup modal: creates admin password and stores salt+hash */
+let dragging = null;
+
+function onPointerDown(e) {
+
+  const el = e.currentTarget;
+  if (!el || !el.classList.contains('bubble')) return;
+
+  if (e.target.closest('input,button,textarea')) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  const rect = el.getBoundingClientRect();
+
+  const clone = el.cloneNode(true);
+  clone.classList.add('dragging-clone');
+
+  Object.assign(clone.style, {
+    position: 'fixed',
+    left: rect.left + 'px',
+    top: rect.top + 'px',
+    width: rect.width + 'px',
+    height: rect.height + 'px',
+    pointerEvents: 'none',
+    zIndex: '99999',
+    opacity: '0.95',
+    transform: 'translate(-50%, -50%)'
+  });
+
+  document.body.appendChild(clone);
+  el.style.visibility = 'hidden';
+
+  dragging = {
+    el,
+    clone,
+    pid: el.dataset.id,
+    offsetX: (e.clientX - rect.left),
+    offsetY: (e.clientY - rect.top)
+  };
+
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+
+  console.debug("drag:start", dragging && dragging.pid);
+}
+
+function onPointerMove(e) {
+  if (!dragging) return;
+  const x = e.clientX - dragging.offsetX;
+  const y = e.clientY - dragging.offsetY;
+  dragging.clone.style.left = x + 'px';
+  dragging.clone.style.top = y + 'px';
+
+  document.querySelectorAll('.dropzone').forEach(z => z.classList.remove('highlight'));
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  const dz = under && under.closest ? under.closest('.dropzone') : null;
+  if (dz) dz.classList.add('highlight');
+}
+
+function onPointerUp(e) {
+  if (!dragging) return;
+
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  const dz = under && under.closest ? under.closest('.dropzone') : null;
+
+  try { if (dragging.el) dragging.el.style.visibility = ''; } catch (err) {}
+  try { if (dragging.clone && dragging.clone.remove) dragging.clone.remove(); } catch (err) {}
+
+  document.querySelectorAll('.dropzone').forEach(z => z.classList.remove('highlight'));
+
+  if (dz && dragging.pid) {
+    const person = (state.people || []).find(p => p.id === dragging.pid);
+    if (person) {
+      person.activityId = dz.dataset.id || null;
+      try { saveStateToDB(); } catch(e){ console.warn(e); }
+      try { saveQuickState(); } catch(e) {}
+      console.debug(`assigned ${person.name} -> ${person.activityId}`);
+    }
+  } else {
+    const back = under && under.closest ? (under.closest('#namesAdminList') || under.closest('#childNames') || under.closest('.names-admin')) : null;
+    if (back && dragging.pid) {
+      const person = (state.people || []).find(p => p.id === dragging.pid);
+      if (person) {
+        person.activityId = null;
+        try { saveStateToDB(); } catch(e){ console.warn(e); }
+        try { saveQuickState(); } catch(e) {}
+        console.debug(`unassigned ${person.name}`);
+      }
+    }
+  }
+
+  // cleanup
+  window.removeEventListener('pointermove', onPointerMove);
+  window.removeEventListener('pointerup', onPointerUp);
+
+  dragging = null;
+
+  // refresh UI
+  try { renderAll(); } catch (err) { console.error("renderAll after drop error:", err); }
+}
+
+
+function attachBubbleEvents() {
+  const bubbles = document.querySelectorAll('.bubble');
+  bubbles.forEach(b => {
+    b.style.touchAction = 'none';
+    b.removeEventListener('pointerdown', onPointerDown);
+    b.addEventListener('pointerdown', onPointerDown);
+  });
+  console.debug('attachBubbleEvents →', bubbles.length);
+}
+
+function adjustBubbleSizes() {
+  const base = (state.settings && state.settings.bubbleSize) ? state.settings.bubbleSize : 72;
+  document.querySelectorAll('.bubble').forEach(bubble => {
+    const txt = (bubble.textContent || '').trim();
+    const extra = Math.min(80, Math.max(0, txt.length - 6) * 6);
+    const width = base + extra;
+    bubble.style.minWidth = width + 'px';
+    bubble.style.height = base + 'px';
+    bubble.style.lineHeight = base + 'px';
+    bubble.style.fontSize = (base * 0.28) + 'px';
+    bubble.style.borderRadius = (base / 2) + 'px';
+  });
+}
+
+/* BLOC 4 — showPasswordSetup + buildAdminUIIfMissing
+   ================================================== */
+
 function showPasswordSetup(opts = {}) {
   const existing = document.getElementById("passwordSetupModal");
   if (existing) existing.remove();
@@ -319,12 +524,9 @@ function showPasswordSetup(opts = {}) {
   });
 }
 
-/* buildAdminUIIfMissing: safe builder that won't throw if HTML already contains parts */
 function buildAdminUIIfMissing(){
-  // Ensure adminPanel exists in HTML (original HTML had <section id="adminPanel">)
   const adminPanel = document.getElementById("adminPanel");
   if(!adminPanel) {
-    // if not present, create a minimal adminPanel to avoid errors
     const ap = document.createElement("section");
     ap.id = "adminPanel";
     ap.style.display = "block";
@@ -341,11 +543,9 @@ function buildAdminUIIfMissing(){
     document.getElementById("adminPanel")?.appendChild(adminArea);
   }
 
-  // If already inited, return
   if(adminArea.dataset.inited === "1") return;
   adminArea.dataset.inited = "1";
 
-  // Build admin controls (match PoC fields)
   adminArea.innerHTML = `
     <h2>Prénoms (max 150)</h2>
     <div class="form-row search">
@@ -387,7 +587,6 @@ function buildAdminUIIfMissing(){
     </div>
   `;
 
-  // Hook admin controls safely (check existence before binding)
   const addNameBtn = document.getElementById("addName");
   const newNameInput = document.getElementById("newName");
   if(addNameBtn && newNameInput){
@@ -472,157 +671,21 @@ function buildAdminUIIfMissing(){
   if(changePassBtn){ changePassBtn.addEventListener("click", async ()=>{ const current = prompt('Mot de passe actuel :'); if(current===null) return; const admin = getAdminRecord(); if(!admin){ alert('Aucun mot de passe enregistré'); return; } const ok = await (async ()=>{ const h = await hashPassword(current, admin.salt); return h === admin.hash; })(); if(!ok){ alert('Mot de passe actuel incorrect'); return; } const np = prompt('Nouveau mot de passe :'); if(!np) return; const np2 = prompt('Confirmer nouveau mot de passe :'); if(np !== np2){ alert('Les mots de passe ne correspondent pas'); return; } const salt = genSalt(); const newHash = await hashPassword(np, salt); saveAdminRecord({ salt, hash: newHash }); alert('Mot de passe changé'); }); }
 }
 
-/* BLOC 4 — Drag & Drop handlers (scope global)
-   ============================================ */
-
-/* Définit handlers en scope module pour pouvoir les rattacher après chaque render */
-
-let _dragging = null;
-
-function onPointerDown(e) {
-  // ignore non-primary buttons
-  if (e.button && e.button !== 0) return;
-  const el = e.currentTarget || e.target;
-  const pid = el && el.dataset && el.dataset.id;
-  if (!pid) return;
-  e.preventDefault();
-
-  const rect = el.getBoundingClientRect();
-  const clone = el.cloneNode(true);
-  clone.classList.add('dragging-clone');
-  Object.assign(clone.style, {
-    position: 'fixed',
-    left: rect.left + 'px',
-    top: rect.top + 'px',
-    width: rect.width + 'px',
-    height: rect.height + 'px',
-    zIndex: 99999,
-    pointerEvents: 'none',
-    transform: 'scale(1.02)'
-  });
-  document.body.appendChild(clone);
-  el.style.visibility = 'hidden';
-
-  _dragging = {
-    orig: el,
-    clone,
-    personId: pid,
-    ox: e.clientX - rect.left,
-    oy: e.clientY - rect.top
-  };
-
-  // events globalement pour suivre le pointer
-  window.addEventListener('pointermove', onPointerMove);
-  window.addEventListener('pointerup', onPointerUp);
-}
-
-function onPointerMove(e) {
-  if (!_dragging) return;
-  const x = e.clientX - _dragging.ox;
-  const y = e.clientY - _dragging.oy;
-  _dragging.clone.style.left = x + 'px';
-  _dragging.clone.style.top = y + 'px';
-
-  // highlight dropzones
-  document.querySelectorAll('.dropzone').forEach(z => z.classList.remove('highlight'));
-  const under = document.elementFromPoint(e.clientX, e.clientY);
-  if (under) {
-    const dz = under.closest('.dropzone');
-    if (dz) dz.classList.add('highlight');
-  }
-}
-
-function onPointerUp(e) {
-  if (!_dragging) return;
-  const under = document.elementFromPoint(e.clientX, e.clientY);
-  let dropped = false;
-  const person = (state.people || []).find(p => p.id === _dragging.personId);
-
-  if (under && person) {
-    const dz = under.closest('.dropzone');
-    if (dz) {
-      person.activityId = dz.dataset.id || null;
-      dropped = true;
-    } else {
-      const back = under.closest('#namesAdminList') || under.closest('#childNames') || under.closest('.names-admin');
-      if (back) {
-        person.activityId = null;
-        dropped = true;
-      }
-    }
-  }
-
-  try { if (_dragging.clone && _dragging.clone.remove) _dragging.clone.remove(); } catch (err) { /* ignore */ }
-  if (_dragging.orig) _dragging.orig.style.visibility = '';
-  document.querySelectorAll('.dropzone').forEach(z => z.classList.remove('highlight'));
-
-  window.removeEventListener('pointermove', onPointerMove);
-  window.removeEventListener('pointerup', onPointerUp);
-
-  if (dropped) {
-    try { saveStateToDB(); } catch (e) { console.warn(e); }
-    try { saveQuickState(); } catch (e) {}
-    // remettre à jour l'UI
-    renderMembers();
-    renderChildNames();
-    // après modification, rattacher événements sur nouvelles bulles
-    setTimeout(() => attachBubbleEvents(), 20);
-  } else {
-    // restore visuals
-    renderAll();
-  }
-
-  _dragging = null;
-}
-
-/* ---------- Fonction simple d'attachement (idempotente) ---------- */
-function attachBubbleEvents() {
-  document.querySelectorAll('.bubble').forEach(b => {
-    // reset previous handler to avoid double attach
-    b.onpointerdown = null;
-    b.style.touchAction = 'none';
-    b.addEventListener('pointerdown', onPointerDown);
-  });
-}
-
-/* ---------- Ajustement taille bulles ---------- */
-function adjustBubbleSizes() {
-  document.querySelectorAll('.bubble').forEach(bubble => {
-    const text = (bubble.textContent || '').trim();
-    const base = Math.max(48, (state.settings && state.settings.bubbleSize) ? state.settings.bubbleSize : 72);
-    // si texte long, augmenter largeur ; sinon largeur = hauteur (cercle)
-    const extra = Math.min(80, Math.max(0, text.length - 6) * 6);
-    const width = base + extra;
-    bubble.style.minWidth = width + 'px';
-    bubble.style.height = base + 'px';
-    bubble.style.lineHeight = base + 'px';
-    bubble.style.fontSize = (base * 0.28) + 'px';
-    bubble.style.borderRadius = (base / 2) + 'px';
-  });
-}
-
-/* renderAll appelle attachBubbleEvents() + adjustBubbleSizes(). Mais sont ils bien placé ? */
-
 /* BLOC 5 — single DOMContentLoaded + init wiring
    =============================================== */
 
 document.addEventListener("DOMContentLoaded", async () => {
   try {
-    // Ensure sqlite resources available and DB init
     await initDB();
     await restoreDB();
 
-    // Build admin UI (safe)
     buildAdminUIIfMissing();
 
-    // If no admin record -> ask for password creation
     const admin = getAdminRecord();
     if(!admin || !admin.hash || !admin.salt){
-      // small delay to let DOM settle
       setTimeout(()=> showPasswordSetup({ title: "Initialiser le mot de passe administrateur" }), 100);
     }
 
-    // Wire top controls if present in original HTML
     document.getElementById("enterFull")?.addEventListener("click", ()=> {
       if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
       else document.documentElement.requestFullscreen?.().catch(()=>{});
@@ -638,7 +701,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       const ap = document.getElementById("adminPanel"); if(ap) ap.style.display = 'none';
     });
 
-    // unlock button handler (safe)
     const unlockBtn = document.getElementById("unlockBtn");
     if(unlockBtn){
       unlockBtn.addEventListener("click", async ()=>{
@@ -662,8 +724,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
       });
     }
-
-    // seed demo content if empty
+    
     if((state.activities||[]).length === 0 && (state.people||[]).length === 0){
       state.activities.push({ id: UID(), title:'Peinture', type:'color', data:'#ff7f50', icon:'🎨' });
       state.activities.push({ id: UID(), title:'Jeux Extérieurs', type:'color', data:'#4caf50', icon:'⚽' });
