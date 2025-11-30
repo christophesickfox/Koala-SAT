@@ -1,20 +1,25 @@
-/* app.js — Version finale fusionnée & chiffrée
+/* Consolidation (merci a celui qui m'a donné un coup de main, avec les corrections, voila le resultat)
    - AES-GCM-256 pour state.* (people, activities, backgrounds)
    - clé dérivée via PBKDF2(password, encSalt)
    - compatible SQLite (settings) + JSON export/import (chiffré)
-   - conserve UI/admin/dnd existants
+   - Drag & drop, UI admin, icon picker
+   - Verrouillage automatique (clear masterKey) + badge "🔐 Données chiffrées (actif)"
 */
 
-/* =========================
-   BLOC 1 — Helpers, sécurité & DB
-   ================================ */
+/* Helpers, sécurité & DB
+   ====================== */
 
 let db = null;
+let masterKey = null; 
+let lockTimer = null; 
+let lockRemainingInterval = null; 
+const DEFAULT_LOCK_MINUTES = 5;
+
 let state = {
   people: [],
   activities: [],
   backgrounds: {},
-  settings: { bubbleSize: 72 }
+  settings: { bubbleSize: 72, lockMinutes: DEFAULT_LOCK_MINUTES }
 };
 
 const STORAGE = { LS_KEY: "sat_state", DB_KEY: "sat_db" };
@@ -41,7 +46,6 @@ function genSalt(){ const arr=new Uint8Array(16); crypto.getRandomValues(arr); r
 
 /* AES key derive from password (for encrypt/decrypt) */
 async function deriveAESKeyFromPassword(password, encSaltBase64){
-  // encSaltBase64 is base64
   const enc = new TextEncoder();
   const salt = b642ab(encSaltBase64);
   const passKey = await crypto.subtle.importKey('raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']);
@@ -76,11 +80,6 @@ async function decryptObject(aesKey, payload){
   const dec = new TextDecoder();
   return JSON.parse(dec.decode(plainBuf));
 }
-
-/* masterKey is the CryptoKey for the session once admin unlocks or creates password.
-   If null, we cannot encrypt/decrypt automatically and will prompt at restore if needed.
-*/
-let masterKey = null;
 
 /* --- SQLite DB helpers (sql-wasm.wasm is local) --- */
 async function initDB(){
@@ -125,13 +124,7 @@ async function restoreDB(){
         // If we have masterKey already, decrypt now
         if(masterKey){
           const s = await decryptObject(masterKey, payload);
-          // loaded decrypted object expected to contain people/activities/backgrounds/settings
-          if(s) {
-            state.people = s.people || [];
-            state.activities = s.activities || [];
-            state.backgrounds = s.backgrounds || {};
-            state.settings = s.settings || (state.settings || {});
-          }
+          if(s) applyDecryptedState(s);
         } else {
           // attempt to prompt user for password to decrypt (transparent)
           const admin = getAdminRecord();
@@ -142,12 +135,8 @@ async function restoreDB(){
                 const key = await deriveAESKeyFromPassword(pass, admin.encSalt);
                 const s = await decryptObject(key, payload);
                 masterKey = key; // keep for this session
-                if(s){
-                  state.people = s.people || [];
-                  state.activities = s.activities || [];
-                  state.backgrounds = s.backgrounds || {};
-                  state.settings = s.settings || (state.settings || {});
-                }
+                startLockTimer(); // start auto-lock on successful immediate decrypt
+                if(s) applyDecryptedState(s);
               } catch(err){
                 console.warn("restoreDB: decrypt failed with provided password", err);
                 // leave state as default (empty) — user can unlock later
@@ -171,6 +160,13 @@ async function restoreDB(){
   } catch (err) {
     console.error("restoreDB error:", err);
   }
+}
+
+function applyDecryptedState(s){
+  state.people = s.people || [];
+  state.activities = s.activities || [];
+  state.backgrounds = s.backgrounds || {};
+  state.settings = s.settings || (state.settings || {});
 }
 
 /* saveStateToDB: if masterKey available -> save encrypted payload into 'state_enc',
@@ -201,8 +197,6 @@ function saveQuickState(){
 
 /* Admin record helpers (adminPass record will include:
     { salt: <base64>, hash: <base64>, encSalt: <base64> }
-   - salt: used to produce stored hash (hashPassword)
-   - encSalt: used to derive AES encryption key for data
 */
 function getAdminRecord(){
   if(!db) return null;
@@ -237,9 +231,8 @@ function policyCheck(pass){
   return { ok: reasons.length === 0, reasons };
 }
 
-/* ==============
-   BLOC 2 — Render & helpers (unchanged logic, but ensure data-* IDs are set)
-   ============== */
+/* Render & helpers
+   ================= */
 
 function renderBackground(){
   const d = new Date().toISOString().slice(0,10);
@@ -258,6 +251,37 @@ function renderCounter(){
   el.textContent = `${(state.people||[]).length} enfants — ${(state.activities||[]).length} activités`;
 }
 
+function renderEncryptionBadge() {
+  const id = "encBadge";
+  let el = document.getElementById(id);
+  if (!el) {
+    el = document.createElement("div");
+    el.id = id;
+    el.style = `
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      background: #0d9488;
+      color: white;
+      padding: 6px 12px;
+      font-size: 14px;
+      border-radius: 8px;
+      z-index: 9999;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      display:flex;
+      align-items:center;
+      gap:8px;
+    `;
+    document.body.appendChild(el);
+  }
+  if(masterKey){
+    const mins = state.settings && state.settings.lockMinutes ? state.settings.lockMinutes : DEFAULT_LOCK_MINUTES;
+    el.textContent = `🔐 Données chiffrées (actif) — verrouillage ${mins}m`;
+  } else {
+    el.textContent = "⚠️ Non chiffré";
+  }
+}
+
 function renderNamesAdmin(){
   const list = document.getElementById("namesAdminList");
   if(!list) return;
@@ -266,7 +290,6 @@ function renderNamesAdmin(){
     const row = document.createElement('div'); row.className='row';
     const who = document.createElement('div'); who.className='who';
     const bub = document.createElement('div'); bub.className='bubble'; bub.style.background = p.color || colorFrom(p.name); bub.textContent = (p.name||'')[0] || '?';
-    // ensure admin panel bubbles do have data-id (useful)
     bub.dataset.id = p.id;
     const span = document.createElement('span'); span.textContent = p.name || '';
     who.appendChild(bub); who.appendChild(span);
@@ -305,7 +328,6 @@ function renderChildNames() {
   });
 
   wrap.appendChild(container);
-  // attachBubbleEvents and adjustBubbleSizes are called by renderAll after all renders
 }
 
 function renderActivities(){
@@ -323,7 +345,6 @@ function renderActivities(){
     const title = document.createElement('div'); title.className='act-title';
     const left = document.createElement('div'); left.className='act-left';
     const ic = document.createElement('div'); ic.className='act-ic'; ic.textContent = act.icon || '🎯';
-    // attach clickable icon handler (open icon chooser)
     ic.addEventListener('click', (ev) => {
       ev.stopPropagation();
       openIconMenu(ev, act);
@@ -341,7 +362,6 @@ function renderActivities(){
   renderMembers();
 }
 
-/* renderMembers() — places assigned bubbles inside dropzones (with data-id) */
 function renderMembers(){
   document.querySelectorAll('.dropzone').forEach(dz => dz.innerHTML = '');
   (state.people || []).forEach(p=>{
@@ -349,7 +369,6 @@ function renderMembers(){
     const dz = document.querySelector(`.dropzone[data-id='${p.activityId}']`);
     if(!dz) return;
     const bub = document.createElement('div'); bub.className='bubble';
-    // show a short label (first name)
     bub.textContent = (p.name||'').split(' ')[0] || (p.name||'?');
     bub.title = p.name;
     bub.dataset.id = p.id; // important
@@ -360,21 +379,20 @@ function renderMembers(){
   });
 }
 
-/* renderAll — Rendu global de l’application
-   (corrigé pour rattacher les événements après DOM update)
-*/
+/* renderAll — Rendu global de l’application */
 function renderAll() {
   try {
-    renderNamesAdmin();      // panneau admin
-    renderChildNames();      // liste enfants libres
-    renderActivities();      // cartes d’activités
-    renderBackground();      // fond décoratif
-    renderCounter();         // compteur si existant
+    renderNamesAdmin();
+    renderChildNames();
+    renderActivities();
+    renderBackground();
+    renderCounter();
+    renderEncryptionBadge();
 
     // Attacher events après mise à jour du DOM
     setTimeout(() => {
-      attachBubbleEvents();   // rend les bulles draggables
-      adjustBubbleSizes();    // adapte la taille après insertion
+      attachBubbleEvents();
+      adjustBubbleSizes();
       console.log("✅ renderAll → bulles prêtes :", document.querySelectorAll(".bubble").length);
     }, 0);
 
@@ -383,28 +401,21 @@ function renderAll() {
   }
 }
 
-/* ======================================================
-   BLOC 3 — Drag & Drop handlers (stable, non intrusif)
-   ====================================================== */
+/* Drag & Drop handlers
+   ==================== */
 let dragging = null;
 
 function onPointerDown(e) {
-  // only start drag for bubble elements
   const el = e.currentTarget;
   if (!el || !el.classList.contains('bubble')) return;
-
-  // don't start drag if pointer started on an input inside a bubble (safety)
   if (e.target.closest('input,button,textarea')) return;
 
   e.preventDefault();
   e.stopPropagation();
 
   const rect = el.getBoundingClientRect();
-
-  // create clone
   const clone = el.cloneNode(true);
   clone.classList.add('dragging-clone');
-  // initial position matches original
   clone.style.position = 'fixed';
   clone.style.left = rect.left + 'px';
   clone.style.top = rect.top + 'px';
@@ -428,21 +439,19 @@ function onPointerDown(e) {
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
 
-  // debug
+  resetLockTimer();
+
   console.debug('drag:start', dragging && dragging.pid);
 }
 
 function onPointerMove(e) {
   if (!dragging) return;
-  // update clone position so it follows pointer
   const x = e.clientX - dragging.offsetX;
   const y = e.clientY - dragging.offsetY;
   if (dragging.clone) {
     dragging.clone.style.left = x + 'px';
     dragging.clone.style.top = y + 'px';
   }
-
-  // highlight dropzone under pointer
   document.querySelectorAll('.dropzone').forEach(z => z.classList.remove('highlight'));
   const under = document.elementFromPoint(e.clientX, e.clientY);
   const dz = under && under.closest ? under.closest('.dropzone') : null;
@@ -451,29 +460,22 @@ function onPointerMove(e) {
 
 function onPointerUp(e) {
   if (!dragging) return;
-
-  // compute drop target
   const under = document.elementFromPoint(e.clientX, e.clientY);
   const dz = under && under.closest ? under.closest('.dropzone') : null;
 
-  // restore original visibility and remove clone asap
   try { if (dragging.el) dragging.el.style.visibility = ''; } catch(err){}
   try { if (dragging.clone && dragging.clone.remove) dragging.clone.remove(); } catch(err){}
 
-  // remove visual highlights
   document.querySelectorAll('.dropzone').forEach(z => z.classList.remove('highlight'));
 
-  // if dropped on a valid dropzone, assign activityId BEFORE render
   if (dz && dragging.pid) {
     const person = (state.people || []).find(p => p.id === dragging.pid);
     if (person) {
       person.activityId = dz.dataset.id || null;
-      console.debug(`assigned ${person.name} -> ${person.activityId}`);
       try { saveStateToDB(); } catch(e){ console.warn(e); }
       try { saveQuickState(); } catch(e) {}
     }
   } else {
-    // if dropped outside, unassign only when dropped back on names area
     const back = under && under.closest ? (under.closest('#namesAdminList') || under.closest('#childNames') || under.closest('.names-admin')) : null;
     if (back && dragging.pid) {
       const person = (state.people || []).find(p => p.id === dragging.pid);
@@ -481,32 +483,28 @@ function onPointerUp(e) {
         person.activityId = null;
         try { saveStateToDB(); } catch(e){ console.warn(e); }
         try { saveQuickState(); } catch(e) {}
-        console.debug(`unassigned ${person.name}`);
       }
     }
   }
 
-  // cleanup listeners
   window.removeEventListener('pointermove', onPointerMove);
   window.removeEventListener('pointerup', onPointerUp);
 
   dragging = null;
-
-  // refresh UI after persistence
+  resetLockTimer();
   try { renderAll(); } catch(err){ console.error('renderAll error after drop:', err); }
 }
 
 function attachBubbleEvents() {
   const bubbles = document.querySelectorAll('.bubble');
   bubbles.forEach(b => {
-    // ensure no duplicate listeners
     b.style.touchAction = 'none';
     b.removeEventListener('pointerdown', onPointerDown);
     b.addEventListener('pointerdown', onPointerDown);
   });
-  console.debug('attachBubbleEvents →', bubbles.length);
 }
 
+/* Ajustement tailles bulles */
 function adjustBubbleSizes() {
   const base = (state.settings && state.settings.bubbleSize) ? state.settings.bubbleSize : 72;
   document.querySelectorAll('.bubble').forEach(bubble => {
@@ -521,11 +519,9 @@ function adjustBubbleSizes() {
   });
 }
 
-/* ==============
-   BLOC 4 — showPasswordSetup + admin UI builder
-   ============== */
+/* showPasswordSetup + admin UI builder
+   ==================================== */
 
-/* showPasswordSetup modal: creates admin password and stores salt+hash+encSalt */
 function showPasswordSetup(opts = {}) {
   const existing = document.getElementById("passwordSetupModal");
   if (existing) existing.remove();
@@ -560,9 +556,8 @@ function showPasswordSetup(opts = {}) {
       const encSalt = genSalt();   // used to derive AES key
       const hash = await hashPassword(p1, salt);
       saveAdminRecord({ salt, hash, encSalt });
-      // derive masterKey for session so we can immediately encrypt future saves
       masterKey = await deriveAESKeyFromPassword(p1, encSalt);
-      // persist current state encrypted now
+      startLockTimer();
       await saveStateToDB();
       modal.remove();
       alert("Mot de passe enregistré.");
@@ -574,9 +569,7 @@ function showPasswordSetup(opts = {}) {
   });
 }
 
-/* buildAdminUIIfMissing: safe builder that won't throw if HTML already contains parts */
 function buildAdminUIIfMissing(){
-  // Ensure adminPanel exists in HTML (original HTML had <section id="adminPanel">)
   const adminPanel = document.getElementById("adminPanel");
   if(!adminPanel) {
     const ap = document.createElement("section");
@@ -595,11 +588,9 @@ function buildAdminUIIfMissing(){
     document.getElementById("adminPanel")?.appendChild(adminArea);
   }
 
-  // If already inited, return
   if(adminArea.dataset.inited === "1") return;
   adminArea.dataset.inited = "1";
 
-  // Build admin controls (match PoC fields)
   adminArea.innerHTML = `
     <h2>Prénoms (max 150)</h2>
     <div class="form-row search">
@@ -641,7 +632,6 @@ function buildAdminUIIfMissing(){
     </div>
   `;
 
-  // Hook admin controls safely (check existence before binding)
   const addNameBtn = document.getElementById("addName");
   const newNameInput = document.getElementById("newName");
   if(addNameBtn && newNameInput){
@@ -719,14 +709,12 @@ function buildAdminUIIfMissing(){
   const exportBtn = document.getElementById("exportBtn");
   if(exportBtn){
     exportBtn.addEventListener("click", async ()=>{
-      // export encrypted if masterKey available, else ask password to produce encrypted export
       try {
         let payload;
         if(masterKey){
           payload = await encryptObject(masterKey, { people: state.people, activities: state.activities, backgrounds: state.backgrounds, settings: state.settings });
           payload.type = "encrypted";
         } else {
-          // try to get admin rec and ask password to export encrypted
           const admin = getAdminRecord();
           if(admin && admin.encSalt){
             const pass = prompt("Entrez le mot de passe admin pour exporter les données chiffrées (ou annulez pour exporter en clair) :");
@@ -735,7 +723,6 @@ function buildAdminUIIfMissing(){
               payload = await encryptObject(key, { people: state.people, activities: state.activities, backgrounds: state.backgrounds, settings: state.settings });
               payload.type = "encrypted";
             } else {
-              // export plain JSON
               payload = { type: "plain", people: state.people, activities: state.activities, backgrounds: state.backgrounds, settings: state.settings };
             }
           } else {
@@ -759,7 +746,6 @@ function buildAdminUIIfMissing(){
         try {
           const imported = JSON.parse(r.result);
           if(imported.type === "encrypted" && imported.iv && imported.data){
-            // ask password to decrypt or use masterKey
             try {
               let key = masterKey;
               if(!key){
@@ -768,7 +754,6 @@ function buildAdminUIIfMissing(){
                 const pass = prompt("Mot de passe admin pour déchiffrer l'import :");
                 if(!pass) throw new Error("Mot de passe absent");
                 key = await deriveAESKeyFromPassword(pass, admin.encSalt);
-                // do not automatically set masterKey from import
               }
               const s = await decryptObject(key, imported);
               if(confirm('Importer va remplacer l’état actuel. Continuer ?')){
@@ -780,7 +765,6 @@ function buildAdminUIIfMissing(){
               }
             } catch(err){ console.error("import decrypt failed", err); alert("Impossible de déchiffrer l'import"); }
           } else {
-            // plain import
             if(confirm('Importer va remplacer l’état actuel. Continuer ?')){
               state = Object.assign(state, imported);
               saveStateToDB();
@@ -810,21 +794,17 @@ function buildAdminUIIfMissing(){
       const chk = policyCheck(np);
       if(!chk.ok){ alert("Mot de passe non conforme : " + chk.reasons.join(", ")); return; }
 
-      // re-encrypt with new encSalt derived from new password
       try {
         const newSalt = genSalt();
         const newEncSalt = genSalt();
         const newHash = await hashPassword(np, newSalt);
         const newKey = await deriveAESKeyFromPassword(np, newEncSalt);
 
-        // decrypt current encrypted stored state (if any) with old masterKey or ask current password
-        // get encrypted blob
         const row = db.exec("SELECT value FROM settings WHERE key='state_enc'");
         let currentStateObj = { people: state.people, activities: state.activities, backgrounds: state.backgrounds, settings: state.settings };
         if(row && row[0]){
           try {
             const payload = JSON.parse(row[0].values[0][0]);
-            // try to decrypt with current masterKey or current password
             let decryptKey = masterKey;
             if(!decryptKey){
               decryptKey = await deriveAESKeyFromPassword(current, admin.encSalt);
@@ -832,10 +812,9 @@ function buildAdminUIIfMissing(){
             currentStateObj = await decryptObject(decryptKey, payload);
           } catch(e){ console.warn("changePass: unable to decrypt existing state, will re-encrypt current in-memory state", e); }
         }
-        // store new admin record
         saveAdminRecord({ salt: newSalt, hash: newHash, encSalt: newEncSalt });
-        // set masterKey to newKey and persist state encrypted with it
         masterKey = newKey;
+        startLockTimer();
         state.people = currentStateObj.people || [];
         state.activities = currentStateObj.activities || [];
         state.backgrounds = currentStateObj.backgrounds || {};
@@ -848,7 +827,6 @@ function buildAdminUIIfMissing(){
   }
 }
 
-/* icon menu (simple) */
 const iconMenuEl = document.getElementById("iconMenu");
 function openIconMenu(ev, act){
   if(!iconMenuEl) return;
@@ -863,8 +841,11 @@ function openIconMenu(ev, act){
     iconMenuEl.appendChild(span);
   });
   iconMenuEl.style.display = 'flex';
-  iconMenuEl.style.left = Math.min(ev.clientX + 6, window.innerWidth - iconMenuEl.offsetWidth - 8) + 'px';
-  iconMenuEl.style.top = Math.min(ev.clientY + 6, window.innerHeight - iconMenuEl.offsetHeight - 8) + 'px';
+
+  setTimeout(()=>{
+    iconMenuEl.style.left = Math.min(ev.clientX + 6, window.innerWidth - iconMenuEl.offsetWidth - 8) + 'px';
+    iconMenuEl.style.top = Math.min(ev.clientY + 6, window.innerHeight - iconMenuEl.offsetHeight - 8) + 'px';
+  }, 0);
 }
 document.addEventListener('click', (ev) => {
   if(!ev.target.closest('#iconMenu') && !ev.target.classList.contains('act-ic')) {
@@ -873,27 +854,87 @@ document.addEventListener('click', (ev) => {
   }
 });
 
-/* ==============
-   BLOC 5 — single DOMContentLoaded + init wiring
-   ============== */
+/* Auto-lock helpers
+   ================= */
+
+function startLockTimer(){
+  clearLockTimer();
+  const mins = (state.settings && state.settings.lockMinutes) ? state.settings.lockMinutes : DEFAULT_LOCK_MINUTES;
+  if(!masterKey || !mins || mins <= 0) {
+    renderEncryptionBadge();
+    return;
+  }
+  const ms = mins * 60 * 1000;
+  const expireAt = Date.now() + ms;
+
+  lockTimer = setTimeout(() => {
+    clearMasterKey();
+  }, ms);
+
+  if(lockRemainingInterval) clearInterval(lockRemainingInterval);
+  lockRemainingInterval = setInterval(() => {
+    const remaining = Math.max(0, expireAt - Date.now());
+    const m = Math.floor(remaining / 60000);
+    const s = Math.floor((remaining % 60000)/1000);
+    const el = document.getElementById('encBadge');
+    if(el && masterKey) el.textContent = `🔐 Données chiffrées (actif) — verrouillage ${m}m ${s}s`;
+    if(remaining <= 0) {
+      clearInterval(lockRemainingInterval); lockRemainingInterval = null;
+    }
+  }, 1000 * 5);
+
+  renderEncryptionBadge();
+}
+
+function clearLockTimer(){
+  if(lockTimer) { clearTimeout(lockTimer); lockTimer = null; }
+  if(lockRemainingInterval) { clearInterval(lockRemainingInterval); lockRemainingInterval = null; }
+}
+
+function resetLockTimer(){
+  if(masterKey) startLockTimer();
+}
+
+/** Clear masterKey from memory (lock session) */
+function clearMasterKey(){
+  masterKey = null;
+  clearLockTimer();
+  renderEncryptionBadge();
+  // keep admin UI hidden
+  const aa = document.getElementById("adminArea");
+  if(aa) aa.style.display = 'none';
+  console.info("Session verrouillée : masterKey cleared");
+}
+
+window.setLockTimeout = function(minutes){
+  const n = parseInt(minutes, 10);
+  if(isNaN(n) || n < 0) return;
+  state.settings.lockMinutes = n;
+  saveStateToDB();
+  renderEncryptionBadge();
+  if(masterKey) startLockTimer();
+};
+
+/* DOMContentLoaded + init wiring
+   ============================== */
 
 document.addEventListener("DOMContentLoaded", async () => {
   try {
-    // Ensure sqlite resources available and DB init
     await initDB();
     await restoreDB();
 
-    // Build admin UI (safe)
+    // Build admin UI and wire setNewPassBtn from your HTML native button
     buildAdminUIIfMissing();
 
-    // If no admin record -> ask for password creation
+    // hook the "setNewPassBtn" in the static HTML to open setup modal
+    document.getElementById("setNewPassBtn")?.addEventListener("click", ()=> showPasswordSetup({ title: "Définir / modifier le mot de passe administrateur" }));
+
+    // If no admin record -> ask for password creation (deferred so DOM visible)
     const admin = getAdminRecord();
     if(!admin || !admin.hash || !admin.salt){
-      // small delay to let DOM settle
       setTimeout(()=> showPasswordSetup({ title: "Initialiser le mot de passe administrateur" }), 150);
     }
 
-    // Wire top controls if present in original HTML
     document.getElementById("enterFull")?.addEventListener("click", ()=> {
       if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
       else document.documentElement.requestFullscreen?.().catch(()=>{});
@@ -903,13 +944,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       const ap = document.getElementById("adminPanel"); if(ap) ap.style.display = 'block';
       const aa = document.getElementById("adminArea"); if(aa) aa.style.display = 'block';
       buildAdminUIIfMissing();
+      resetLockTimer();
     });
 
     document.getElementById("hideUI")?.addEventListener("click", ()=>{
       const ap = document.getElementById("adminPanel"); if(ap) ap.style.display = 'none';
     });
 
-    // unlock button handler (safe)
     const unlockBtn = document.getElementById("unlockBtn");
     if(unlockBtn){
       unlockBtn.addEventListener("click", async ()=>{
@@ -921,7 +962,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         try {
           const ok = (await hashPassword(pass, adminRec.salt)) === adminRec.hash;
           if(ok){
-            // derive AES master key for session
             try {
               masterKey = await deriveAESKeyFromPassword(pass, adminRec.encSalt);
             } catch(e){
@@ -930,21 +970,16 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
             document.getElementById("adminArea") && (document.getElementById("adminArea").style.display = 'block');
             if(passInput) passInput.value = '';
-            // After unlocking, if an encrypted state existed, ensure it's decrypted and applied
-            // restoreDB would have attempted decrypt earlier; but if decrypt deferred, try now
+            // try to decrypt stored encrypted state now
             const encRow = db.exec("SELECT value FROM settings WHERE key='state_enc'");
             if(encRow && encRow[0]){
               try {
                 const payload = JSON.parse(encRow[0].values[0][0]);
                 const s = await decryptObject(masterKey, payload);
-                if(s){
-                  state.people = s.people || [];
-                  state.activities = s.activities || [];
-                  state.backgrounds = s.backgrounds || {};
-                  state.settings = s.settings || state.settings || {};
-                }
+                if(s) applyDecryptedState(s);
               } catch(e){ console.warn("post-unlock decrypt failed", e); }
             }
+            startLockTimer();
             renderAll();
           } else {
             alert("Mot de passe incorrect.");
@@ -956,7 +991,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
     }
 
-    // seed demo content if empty
+    // demo
     if((state.activities||[]).length === 0 && (state.people||[]).length === 0){
       state.activities.push({ id: UID(), title:'Peinture', type:'color', data:'#ff7f50', icon:'🎨' });
       state.activities.push({ id: UID(), title:'Jeux Extérieurs', type:'color', data:'#4caf50', icon:'⚽' });
@@ -967,6 +1002,14 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // final render
     renderAll();
+
+    // small global handlers: any admin interaction resets lock timer
+    document.addEventListener('click', (e) => {
+      if(e.target.closest('#adminPanel') || e.target.closest('#adminArea')) resetLockTimer();
+    });
+    document.addEventListener('keydown', (e) => {
+      if(e.target.closest && (e.target.closest('#adminPanel') || e.target.closest('#adminArea'))) resetLockTimer();
+    });
 
   } catch (err) {
     console.error("Erreur d'init:", err);

@@ -58,7 +58,7 @@ footer{padding:8px;text-align:center;font-size:13px;color:#6b7280}
 #adminArea {
   display: none;
 }
-/* MODAL Mot de pass Admin a faire fonctionner */
+/* MODAL Mot de pass Admin */
 #pw-setup-modal {
   position: fixed;
   inset: 0;
